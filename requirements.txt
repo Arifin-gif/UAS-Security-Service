@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+cryptography
+pyjwt
+python-multipart
