@@ -1,188 +1,23 @@
-# main.py 
+# main.py
+# Entry point server
+from fastapi import FastAPI
+from api import router  # Panggil router dari file api.py
 
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
-import jwt
-from typing import Optional
-
-# WAJIB: Panggil rumus dari file crypto_utils.py
-from crypto_utils import (
-    generate_keys, sign_data, verify_signature,
-    generate_symmetric_key, encrypt_message, decrypt_message
+# Inisialisasi Aplikasi
+app = FastAPI(
+    title="Security Service API",
+    description="Secure API with Encryption, Digital Signature, and JWT Auth",
+    version="1.0.0"
 )
 
-# --- INI BARIS YANG TADI HILANG (PENTING!) ---
-app = FastAPI(title="Security Service", version="1.0.0")
-
-# --- KONFIGURASI ---
-SECRET_KEY = "rahasia_kelompok_kita"
-ALGORITHM = "HS256"
-security = HTTPBearer()
-
-users_db = {} 
-messages_db = [] 
-
-# --- MODEL DATA (Kamus Data) ---
-class UserRegister(BaseModel):
-    username: str
-    password: str
-
-class UserLogin(BaseModel):
-    username: str
-    password: str
-
-class KeyStore(BaseModel): 
-    public_key_str: str
-
-# Model Tambahan (Dhilla & Indah)
-class RelayMessage(BaseModel):
-    recipient: str
-    encrypted_content: str
-
-class VerifyRequest(BaseModel):
-    username_pengirim: str
-    message: str
-    signature: str
-
-class EncryptRequest(BaseModel):
-    message: str
-    key: str
-
-class DecryptRequest(BaseModel):
-    ciphertext: str
-    key: str
-
-# --- FUNGSI KEAMANAN (SATPAM) ---
-def create_jwt_token(username: str):
-    payload = {"sub": username}
-    token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-    return token
-
-def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    token = credentials.credentials
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username = payload.get("sub")
-        if username not in users_db:
-             raise HTTPException(status_code=401, detail="User tidak dikenali")
-        return username
-    except Exception:
-        raise HTTPException(status_code=401, detail="Token tidak valid")
-
-# ==========================================
-# ENDPOINTS (ARIFIN - ANGGOTA 1)
-# ==========================================
+# Hubungkan Endpoint
+app.include_router(router)
 
 @app.get("/")
 def read_root():
-    return {"message": "Sistem Security Service Siap!"}
+    return {"message": "System is Running..."}
 
-@app.post("/register", tags=["Anggota 1: Arifin"])
-def register_user(user: UserRegister):
-    if user.username in users_db:
-        raise HTTPException(status_code=400, detail="Username sudah dipakai")
-    users_db[user.username] = {"password": user.password, "public_key": None}
-    return {"message": f"User {user.username} berhasil daftar."}
-
-@app.post("/login", tags=["Anggota 1: Arifin"])
-def login(user: UserLogin):
-    if user.username not in users_db:
-        raise HTTPException(status_code=400, detail="User tidak ditemukan")
-    stored_data = users_db[user.username]
-    if user.password != stored_data['password']:
-        raise HTTPException(status_code=400, detail="Password salah")
-    token = create_jwt_token(user.username)
-    return {"access_token": token, "token_type": "bearer"}
-
-@app.get("/me", tags=["Anggota 1: Arifin"])
-def get_my_info(current_user: str = Depends(verify_token)):
-    return {"username": current_user, "data": users_db[current_user]}
-
-# Tugas Utama Arifin: Simpan Public Key (/store)
-@app.post("/store", tags=["Anggota 1: Arifin"])
-def store_public_key(key_data: KeyStore, current_user: str = Depends(verify_token)):
-    users_db[current_user]["public_key"] = key_data.public_key_str
-    return {"message": "Public Key berhasil disimpan.", "user": current_user}
-
-# ==========================================
-# ENDPOINTS (DHILLA - ANGGOTA 2)
-# ==========================================
-
-@app.post("/verify", tags=["Anggota 2: Dhilla"])
-def verify_message_endpoint(req: VerifyRequest):
-    if req.username_pengirim not in users_db:
-         raise HTTPException(404, "User pengirim tidak ditemukan")
-    user_data = users_db[req.username_pengirim]
-    if not user_data["public_key"]:
-         raise HTTPException(400, "User belum punya public key")
-         
-    is_valid = verify_signature(user_data["public_key"], req.message.encode('utf-8'), req.signature)
-    
-    if is_valid:
-        return {"status": "VALID", "detail": "Signature ASLI."}
-    else:
-        raise HTTPException(400, detail="INVALID! Signature PALSU.")
-
-@app.post("/encrypt", tags=["Anggota 2: Dhilla"])
-def encrypt_tool(req: EncryptRequest):
-    try:
-        cipher = encrypt_message(req.key, req.message)
-        return {"original": req.message, "encrypted": cipher}
-    except:
-        raise HTTPException(400, "Key Error")
-
-@app.post("/decrypt", tags=["Anggota 2: Dhilla"])
-def decrypt_tool(req: DecryptRequest):
-    try:
-        original = decrypt_message(req.key, req.ciphertext)
-        return {"decrypted": original}
-    except:
-        raise HTTPException(400, "Decrypt Error")
-
-# ==========================================
-# ENDPOINTS (INDAH - ANGGOTA 3)
-# ==========================================
-
-@app.post("/relay", tags=["Anggota 3: Indah"])
-def relay_message(msg: RelayMessage, sender: str = Depends(verify_token)):
-    if msg.recipient not in users_db:
-        raise HTTPException(404, "Penerima tidak ditemukan")
-    
-    new_msg = {
-        "from": sender,
-        "to": msg.recipient,
-        "content": msg.encrypted_content
-    }
-    messages_db.append(new_msg)
-    return {"status": "Terkirim", "detail": f"Pesan disimpan untuk {msg.recipient}"}
-
-@app.post("/upload-pdf", tags=["Anggota 3: Indah"])
-async def upload_pdf_sign(file: UploadFile = File(...), private_key: str = Form(...)):
-    try:
-        pdf_content = await file.read()
-        signature = sign_data(private_key, pdf_content)
-        return {
-            "filename": file.filename,
-            "status": "SIGNED",
-            "digital_signature": signature
-        }
-    except Exception as e:
-        raise HTTPException(400, detail=f"Gagal sign PDF: {str(e)}")
-
-@app.get("/inbox", tags=["Anggota 3: Indah"])
-def check_inbox(user: str = Depends(verify_token)):
-    my_messages = [m for m in messages_db if m["to"] == user]
-    return {"inbox": my_messages}
-
-# ==========================================
-# UTILITY (BANTUAN GENERATE KUNCI)
-# ==========================================
-@app.get("/generate-keys", tags=["Utility"])
-def get_keys():
-    priv, pub = generate_keys()
-    return {"private_key": priv, "public_key": pub}
-
-@app.get("/generate-secret-key", tags=["Utility"])
-def get_secret():
-    return {"secret_key": generate_symmetric_key()}
+if __name__ == "__main__":
+    import uvicorn
+    # Menjalankan server
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

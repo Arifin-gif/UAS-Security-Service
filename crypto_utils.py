@@ -1,7 +1,3 @@
-# crypto_utils.py
-# File ini berisi rumus matematika untuk Enkripsi & Tanda Tangan
-# JANGAN DIUBAH!
-
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.fernet import Fernet
